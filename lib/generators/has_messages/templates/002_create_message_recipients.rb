@@ -6,6 +6,7 @@ class CreateMessageRecipients < ActiveRecord::Migration
       t.string :kind, :null => false
       t.integer :position
       t.string :state, :null => false
+      t.string :label
       t.datetime :hidden_at
     end
     add_index :message_recipients, [:message_id, :kind, :position], :unique => true

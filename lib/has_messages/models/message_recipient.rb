@@ -41,6 +41,16 @@ class MessageRecipient < ActiveRecord::Base
               :to => :message
   
   scope :visible, :conditions => {:hidden_at => nil}
+
+  # Defines actions for the labeling of the message to the recipient
+  state_machine :label, :initial => nil do
+    event :archive do
+      transition all => :archived
+    end
+    event :spam do
+      transition all => :spam
+    end
+  end
   
   # Defines actions for the recipient
   state_machine :state, :initial => :unread do
@@ -105,6 +115,26 @@ class MessageRecipient < ActiveRecord::Base
     end
     message
   end
+
+  def archive_thread
+    update_thread('archive')
+  end
+
+  def delete_thread
+    update_thread('delete')
+  end
+
+  def read_thread
+    update_thread('read')
+  end
+
+  def spam_thread
+    update_thread('spam')
+  end
+
+  def unread_thread
+    update_thread('unread')
+  end
   
   private
     # Has the message this recipient is on been sent?
@@ -129,4 +159,35 @@ class MessageRecipient < ActiveRecord::Base
         self.class.update_all('position = (position - 1)', ['message_id = ? AND kind = ? AND position > ?', message_id, kind, position])
       end
     end
+
+    def update_thread(update_type)
+      # find the ids of messages that have the same original_message_id as the message associated with the message_recipient
+      # otherwise find the ids of messages that have the original_message_id pointing to the message associated with the message_recipient
+      update_str = nil
+      case update_type
+      when "archive"
+        update_str = "label = 'archived'"
+      when "delete"
+        update_str = "hidden_at = now()"
+      when "read"
+        update_str = "state = 'read'"
+      when "spam"
+        update_str = "label = 'spam'"
+      when 'unread'
+        update_str = "state = 'unread'"
+      end
+      return if update_str.nil?
+
+      # using update_all for faster updates
+      if self.message.original_message_id.nil?
+        message_ids = Message.find_all_by_original_message_id(self.message.id).collect {|m| m.id}
+        message_ids << self.message.id
+        MessageRecipient.update_all(update_str, ["message_id in (?) and receiver_id = ?", message_ids, self.receiver_id])
+      else
+        message_ids = Message.find_all_by_original_message_id(self.message.original_message_id).collect {|m| m.id}
+        message_ids << self.message.original_message_id
+        MessageRecipient.update_all("label = 'archived'", ["message_id in (?) and receiver_id = ?", message_ids, self.receiver_id])
+      end
+    end
+
 end

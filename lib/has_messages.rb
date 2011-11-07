@@ -45,8 +45,15 @@ module HasMessages
                   :as => :receiver,
                   :class_name => 'MessageRecipient',
                   :include => :message,
-                  :conditions => ['message_recipients.hidden_at IS NULL AND messages.state = ?', 'sent'],
+                  :conditions => ['message_recipients.hidden_at IS NULL AND message_recipients.label IS NULL and messages.state = ?', 'sent'],
                   :order => 'messages.created_at DESC'
+      has_many  :labeled_messages,
+                  :as => :receiver,
+                  :class_name => 'MessageRecipient',
+                  :include => :message,
+                  :conditions => ['message_recipients.hidden_at IS NULL AND message_recipients.label IS NOT NULL and messages.state = ?', 'sent'],
+                  :order => 'messages.created_at DESC'
+
 #      has_many  :received_message_threads,
 #                  :as => :receiver,
 #                  :class_name => 'MessageRecipient',
@@ -73,9 +80,24 @@ module HasMessages
     end
 
     # Returns the most recent message of each thread
-    def last_received_message_per_thread
-      MessageRecipient.find_all_by_receiver_id(id, :order => 'id desc', :joins => :message, :conditions => 'message_recipients.hidden_at is null', :group => 'COALESCE(original_message_id,messages.id)')
+    def last_message_per_thread
+#      MessageRecipient.find_all_by_receiver_id(id, :order => 'id desc', :joins => :message, :conditions => 'message_recipients.hidden_at is null', :group => 'COALESCE(original_message_id,messages.id)')
+      received_messages.group('COALESCE(original_message_id, messages.id)') # equivalent to above sql
     end
+
+    # Returns the most recent UNREAD message of each thread
+    def last_unread_message_per_thread
+      received_messages.with_state(:unread).group('COALESCE(original_message_id, messages.id)') # equivalent to above sql
+    end
+
+    def last_sent_message_per_thread
+      received_messages.where(["messages.sender_id = ?",id]).group('COALESCE(original_message_id, messages.id)')
+    end
+
+    def last_archived_message_per_thread
+      labeled_messages.with_label(:archived).group('COALESCE(original_message_id, messages.id)') # equivalent to above sql
+    end
+
   end
 end
 
