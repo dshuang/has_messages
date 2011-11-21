@@ -45,8 +45,16 @@ module HasMessages
                   :as => :receiver,
                   :class_name => 'MessageRecipient',
                   :include => :message,
+                  :conditions => ['message_recipients.hidden_at IS NULL and messages.state = ?', 'sent'],
+                  :order => 'messages.created_at DESC'
+      #Unlabeled means message_recipients.label column is null, as opposed to 'spam' or 'archived'
+      has_many  :unlabeled_messages,
+                  :as => :receiver,
+                  :class_name => 'MessageRecipient',
+                  :include => :message,
                   :conditions => ['message_recipients.hidden_at IS NULL AND message_recipients.label IS NULL and messages.state = ?', 'sent'],
                   :order => 'messages.created_at DESC'
+      #Labeled means message_recipients.label column is not null, i.e. the value is 'spam' or 'archived'
       has_many  :labeled_messages,
                   :as => :receiver,
                   :class_name => 'MessageRecipient',
@@ -79,23 +87,40 @@ module HasMessages
       messages.with_states(:queued, :sent)
     end
 
-    # Returns the most recent message of each thread
+    # Returns the most recent, unlabeled message of each thread.  
     def last_message_per_thread
-#      MessageRecipient.find_all_by_receiver_id(id, :order => 'id desc', :joins => :message, :conditions => 'message_recipients.hidden_at is null', :group => 'COALESCE(original_message_id,messages.id)')
-      received_messages.group('COALESCE(original_message_id, messages.id)') # equivalent to above sql
+      unlabeled_messages.group('COALESCE(original_message_id, messages.id)')
     end
 
-    # Returns the most recent UNREAD message of each thread
+    # Returns the most recent UNREAD and unlabeled message of each thread
     def last_unread_message_per_thread
-      received_messages.with_state(:unread).group('COALESCE(original_message_id, messages.id)') # equivalent to above sql
+      unlabeled_messages.with_state(:unread).group('COALESCE(original_message_id, messages.id)')
     end
 
+    # Returns the most recent sent and unlabeled message for each thread
     def last_sent_message_per_thread
-      received_messages.where(["messages.sender_id = ?",id]).group('COALESCE(original_message_id, messages.id)')
+      unlabeled_messages.where(["messages.sender_id = ?",id]).group('COALESCE(original_message_id, messages.id)')
     end
 
     def last_archived_message_per_thread
-      labeled_messages.with_label(:archived).group('COALESCE(original_message_id, messages.id)') # equivalent to above sql
+      labeled_messages.with_label(:archived).group('COALESCE(original_message_id, messages.id)')
+    end
+
+    def show_thread(mr_id, filter)
+      if (filter == 'archived' || filter == 'spam')
+        # returns only the message_recipient records having the label matching filter's value, for the thread containing the message_recipient record referenced by mr_id
+        mr = received_messages.where('message_recipients.id = ?',mr_id).first()
+        return [] if mr.nil?
+        original_message_id = mr.message.original_message_id.nil? ? mr.message.id : mr.message.original_message_id
+        return labeled_messages.with_label(filter.to_sym).where("messages.id = ? or messages.original_message_id = ?", original_message_id, original_message_id)
+      else 
+        # returns only the message_recipient records without any label for the thread containing the message_recipient record referenced by mr_id
+        mr = received_messages.where('message_recipients.id = ?',mr_id).first()
+        return [] if mr.nil?
+        original_message_id = mr.message.original_message_id.nil? ? mr.message.id : mr.message.original_message_id
+        return unlabeled_messages.where("messages.id = ? or messages.original_message_id = ?", original_message_id, original_message_id)
+      end
+
     end
 
   end
